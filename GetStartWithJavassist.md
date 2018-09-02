@@ -1,31 +1,21 @@
 # Getting Started with Javassist
 **Shigeru Chiba**
 
-1. Reading and writing bytecode 
+1. Reading and writing bytecode 读写字节码
 
-1. 读写字节码
+2. ClassPool ClassPool
 
-2. ClassPool 
-
-2. ClassPool
-
-3. Class loader 
-
-3. 类加载器
+3. Class loader  类加载器
 
 4. Introspection and customization 
 
-5. Bytecode level API 
+5. Bytecode level API  字节码级API
 
-5. 字节码级API
-
-6. Generics 
-
-6. 泛型
+6. Generics  泛型
 
 7. Varargs 
 8. J2ME 
-9. Boxing/Unboxing 
+9. Boxing/Unboxing 装箱/拆箱
 10. Debug
 
 
@@ -48,31 +38,82 @@ cc.setSuperclass(pool.get("test.Point"));
 cc.writeFile();
 ```
 
-This program first obtains a ClassPool object, which controls bytecode modification with Javassist. The ClassPool object is a container of CtClass object representing a class file. It reads a class file on demand for constructing a CtClass object and records the constructed object for responding later accesses. To modify the definition of a class, the users must first obtain from a ClassPool object a reference to a CtClass object representing that class. get() in ClassPool is used for this purpose. In the case of the program shown above, the CtClass object representing a class test.Rectangle is obtained from the ClassPool object and it is assigned to a variable cc. The ClassPool object returned by getDefault() searches the default system search path.
+This program first obtains a ClassPool object, which controls bytecode modification with Javassist. 
+
+程序首先获取一个ClassPool对象，可以通过Javassist来控制字节码的修改。
+
+The ClassPool object is a container of CtClass object representing a class file.
+
+ClassPool对象是一个容器，用来存储代表类文件的CtClass对象。
+
+It reads a class file on demand for constructing a CtClass object and records the constructed object for responding later accesses.
+
+它读取一个class文件，按需构造一个CtClass对象，记录着构造好的对象以便后续访问返回。
+
+To modify the definition of a class, the users must first obtain from a ClassPool object a reference to a CtClass object representing that class.
+
+为了修改一个定义好的类，用户必须首先从ClassPool对象中获取一个代表那个类的CtClass对象的引用。
+
+get() in ClassPool is used for this purpose.
+
+ClassPool 的get()方法就是用来做这件事情的。
+
+In the case of the program shown above, the CtClass object representing a class test.Rectangle is obtained from the ClassPool object and it is assigned to a variable cc. The ClassPool object returned by getDefault() searches the default system search path.
+
+在这个程序例子中，这CtClass对象代表着一个test.Rectangle类，这个CtClass对象是通过ClassPool对象获取到的。赋值到一个cc变量上。通过调用getDefault()方法，ClassPool对象会咋默认的系统搜索路径来查找这个类文件。
 
 From the implementation viewpoint, ClassPool is a hash table of CtClass objects, which uses the class names as keys. get() in ClassPool searches this hash table to find a CtClass object associated with the specified key. If such a CtClass object is not found, get() reads a class file to construct a new CtClass object, which is recorded in the hash table and then returned as the resulting value of get().
 
+从内部实现角度，ClassPool 是一个CtClass对象的hash表，使用类名作为关键字。调用get()方法，ClassPool会通过关键字来在hash表中查找对应的CtClass 对象。如果CtClass对象没有找到，那么会读取类文件来构造一个新的CtClas对象。并且记录到hash表中，同时CtClass对象作为get()方法的返回值返回。
+
 The CtClass object obtained from a ClassPool object can be modified (details of how to modify a CtClass will be presented later). In the example above, it is modified so that the superclass of test.Rectangle is changed into a class test.Point. This change is reflected on the original class file when writeFile() in CtClass() is finally called.
+
+通过ClassPool获取到的CtClass是可以修改的（具体如何修改一个CtClass对象的细节将在后续呈现）。在这里例子中，是把test.Rectangle的父类改成了test.Point类。当最后调用了CtClass的writeFile()方法，这个改变影响到原始的类文件。
 
 writeFile() translates the CtClass object into a class file and writes it on a local disk. Javassist also provides a method for directly obtaining the modified bytecode. To obtain the bytecode, call toBytecode():
 
+writeFile()方法将CtClass对象传输到类文件中并写入本地磁盘。Javassist也提供了直接获取到被修改的字节码方法，为了获取字节码可以调用toBytecode()方法。
+
+```java
 byte[] b = cc.toBytecode();
+```
+
 You can directly load the CtClass as well:
 
+你也可以同样的加载CtClass。
+
+```java
 Class clazz = cc.toClass();
+```
+
 toClass() requests the context class loader for the current thread to load the class file represented by the CtClass. It returns a java.lang.Class object representing the loaded class. For more details, please see this section below.
 
-Defining a new class
+toClass()方法请求当前线程上下文的类加载器来加载这个CtClass代表的类文件。这个方法返回一个被要求加载的类的java.lang.Class对象。更多细节，请看这部分内容。
+
+#### Defining a new class
+
+#### 定义一个新类
 
 To define a new class from scratch, makeClass() must be called on a ClassPool.
 
+为了从零开始定义一个新类，必须要在一个ClassPool上调用makeClass()方法。
+
+```java
 ClassPool pool = ClassPool.getDefault();
 CtClass cc = pool.makeClass("Point");
+```
+
 This program defines a class Point including no members. Member methods of Point can be created with factory methods declared in CtNewMethod and appended to Point with addMethod() in CtClass.
+
+这个程序定义了一个没有成员变量的Point类，Point的成员方法可以用CtNewMethod来声明工厂方法创建。通过CtClass的addMethod()来添加到Point类中。
 
 makeClass() cannot create a new interface; makeInterface() in ClassPool can do. Member methods in an interface can be created with abstractMethod() in CtNewMethod. Note that an interface method is an abstract method.
 
-Frozen classes
+makeClass()方法不能创建一个接口；ClassPool的makeInterface()方法可以。可以通过CtNewMehtod的abstractMethod()方法来创建接口中的成员方法。注意接口中的方法是抽象方法。
+
+#### Frozen classes
+
+#### 冻结类
 
 If a CtClass object is converted into a class file by writeFile(), toClass(), or toBytecode(), Javassist freezes that CtClass object. Further modifications of that CtClass object are not permitted. This is for warning the developers when they attempt to modify a class file that has been already loaded since the JVM does not allow reloading a class.
 
