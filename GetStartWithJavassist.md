@@ -117,14 +117,23 @@ makeClass()方法不能创建一个接口；ClassPool的makeInterface()方法可
 
 If a CtClass object is converted into a class file by writeFile(), toClass(), or toBytecode(), Javassist freezes that CtClass object. Further modifications of that CtClass object are not permitted. This is for warning the developers when they attempt to modify a class file that has been already loaded since the JVM does not allow reloading a class.
 
+如果一个CtClass对象通过调用writeFile()，toClass()，或者toBytecode()方法 转换到类文件中，Javassist冻结这个CtClass对象。后续关于这个CtClass对象的修改是不被允许的。这个机制会警告开发者，当他们尝试修改一个已经被加载过的类文件，理由是JVM不允许重复加载同一个类。
+
 A frozen CtClass can be defrost so that modifications of the class definition will be permitted. For example,
 
+一个冻结的CtClass可以解冻以便允许修改这个类的定义。例如,
+
+```java
 CtClasss cc = ...;
     :
 cc.writeFile();
 cc.defrost();
 cc.setSuperclass(...);    // OK since the class is not frozen.
+```
+
 After defrost() is called, the CtClass object can be modified again.
+
+defrost()方法被调用后，这CtClass对象再一次允许被修改。
 
 If ClassPool.doPruning is set to true, then Javassist prunes the data structure contained in a CtClass object when Javassist freezes that object. To reduce memory consumption, pruning discards unnecessary attributes (attribute_info structures) in that object. For example, Code_attribute structures (method bodies) are discarded. Thus, after a CtClass object is pruned, the bytecode of a method is not accessible except method names, signatures, and annotations. The pruned CtClass object cannot be defrost again. The default value of ClassPool.doPruning is false.
 
