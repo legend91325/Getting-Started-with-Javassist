@@ -137,49 +137,95 @@ defrost()方法被调用后，这CtClass对象再一次允许被修改。
 
 If ClassPool.doPruning is set to true, then Javassist prunes the data structure contained in a CtClass object when Javassist freezes that object. To reduce memory consumption, pruning discards unnecessary attributes (attribute_info structures) in that object. For example, Code_attribute structures (method bodies) are discarded. Thus, after a CtClass object is pruned, the bytecode of a method is not accessible except method names, signatures, and annotations. The pruned CtClass object cannot be defrost again. The default value of ClassPool.doPruning is false.
 
+如果ClassPool.doPruning设置为true,当Javassist冻结了对象，Javassist将会清理CtClass对象中包含的数据结构。清理对象中比必要的属性（属性信息结构）是为了较少内存的消耗。例如Code_attribute结构（方法体）会被丢弃。因此，一个CtClass对象被清洗后，除了方法名，签名，注解其他的方法字节内容是不能访问到了。被清洗的CtClass对象不能再次被解冻。ClassPool.doPruning默认值是false.
+
 To disallow pruning a particular CtClass, stopPruning() must be called on that object in advance:
 
+为了拒绝清理一个特别的CtClass对象那个，stopPruning()必须提前调用：
+
+```java
 CtClasss cc = ...;
 cc.stopPruning(true);
     :
 cc.writeFile();                             // convert to a class file.
 // cc is not pruned.
+```
+
 The CtClass object cc is not pruned. Thus it can be defrost after writeFile() is called.
+
+cc的CtClass对象不会被清理，因此它可以在执行了writeFile()方法后再次解冻。
 
 Note: While debugging, you might want to temporarily stop pruning and freezing and write a modified class file to a disk drive. debugWriteFile() is a convenient method for that purpose. It stops pruning, writes a class file, defrosts it, and turns pruning on again (if it was initially on).
 Class search path
 
+注意：debug期间，你可能想要临时停止清理，冻结对象，把修改过的类文件写到本地磁盘上。debugWriteFile()方法可以便捷的实现这个逻辑。调用这个方法可以停止清理，写类文件到磁盘，解冻类文件，再一次打开清理（如果起初清理开关是打开着）。
+
 The default ClassPool returned by a static method ClassPool.getDefault() searches the same path that the underlying JVM (Java virtual machine) has. If a program is running on a web application server such as JBoss and Tomcat, the ClassPool object may not be able to find user classes since such a web application server uses multiple class loaders as well as the system class loader. In that case, an additional class path must be registered to the ClassPool. Suppose that pool refers to a ClassPool object:
 
+默认的ClassPool对象是由ClassPool.getDefault静态方法返回的。它会优先搜素JVM(Java 虚拟机)的基本路径。***如果一个程序运行在web服务器中，如JBoss、Tomcat，这ClassPool对象可能查找不到用户的类文件,*** 因为一个Web应用服务器使用多个类加载器作为系统类加载器。在这种情况下，一个附加的类路径必须被注册到ClassPool上。假设pool引用一个ClassPool对象：
+
+```java 
 pool.insertClassPath(new ClassClassPath(this.getClass()));
+```
+
 This statement registers the class path that was used for loading the class of the object that this refers to. You can use any Class object as an argument instead of this.getClass(). The class path used for loading the class represented by that Class object is registered.
+
+这段程序注册了类路径，使用的是加载这个对象所指的类引用。你可以使用任意一个Class对象来代替this.getClass()作为参数。由任意类对象所代表的类路径被注册上用来加载类。
 
 You can register a directory name as the class search path. For example, the following code adds a directory /usr/local/javalib to the search path:
 
+你可以注册一个文件夹名来作为类的查找路径。例如，下面代码添加 /usr/local/javalib 到查找路径:
+
+```java  
 ClassPool pool = ClassPool.getDefault();
 pool.insertClassPath("/usr/local/javalib");
+```
+
 The search path that the users can add is not only a directory but also a URL:
 
+用户添加的查找路径不仅可以是一个文件夹也可以使一个URL:
+
+```java 
 ClassPool pool = ClassPool.getDefault();
 ClassPath cp = new URLClassPath("www.javassist.org", 80, "/java/", "org.javassist.");
 pool.insertClassPath(cp);
-This program adds "http://www.javassist.org:80/java/" to the class search path. This URL is used only for searching classes belonging to a package org.javassist. For example, to load a class org.javassist.test.Main, its class file will be obtained from:
+```
 
+This program adds "http://www.javassist.org:80/java/" to the class search path. This URL is used only for searching classes belonging to a package org.javassist. For example, to load a class org.javassist.test.Main, its class file will be obtained from:
 http://www.javassist.org:80/java/org/javassist/test/Main.class
+
+这段程序添加 "http://www.javassist.org:80/java/" 到类的查找路径。这个URL仅在查找属于org.javassist包下的类时使用。例如，为了加载org.javassist.test.Main类，它的类文件将会从这个地址获取：http://www.javassist.org:80/java/org/javassist/test/Main.class
+
 Furthermore, you can directly give a byte array to a ClassPool object and construct a CtClass object from that array. To do this, use ByteArrayClassPath. For example,
 
+此外，你也可以直接把字节数组传输给ClassPool对象，让其通过字节数组构造CtClass对象。为了可以传输字节数组，使用ByteArrayClassPath,例如，
+
+```java 
 ClassPool cp = ClassPool.getDefault();
 byte[] b = a byte array;
 String name = class name;
 cp.insertClassPath(new ByteArrayClassPath(name, b));
 CtClass cc = cp.get(name);
+```
+
 The obtained CtClass object represents a class defined by the class file specified by b. The ClassPool reads a class file from the given ByteArrayClassPath if get() is called and the class name given to get() is equal to one specified by name.
+
+获取到CtClass对象，其类的定义是由字节数组b来说明的。当ByteArrayClassPath的get方法被调用，ClassPool通过内容读取类文件,get()方法调用的类名要和ByteArrayClassPath构造的保持一致。
 
 If you do not know the fully-qualified name of the class, then you can use makeClass() in ClassPool:
 
+如果你不知道类的全名是什么，你可以使用ClassPool的makeClass()方法构造：
+
+```java
 ClassPool cp = ClassPool.getDefault();
 InputStream ins = an input stream for reading a class file;
 CtClass cc = cp.makeClass(ins);
+```
+
 makeClass() returns the CtClass object constructed from the given input stream. You can use makeClass() for eagerly feeding class files to the ClassPool object. This might improve performance if the search path includes a large jar file. Since a ClassPool object reads a class file on demand, it might repeatedly search the whole jar file for every class file. makeClass() can be used for optimizing this search. The CtClass constructed by makeClass() is kept in the ClassPool object and the class file is never read again.
 
+makeClass()方法返回CtClass对象，通过传入的输入流来构造。如果急切需要将类文件传输到ClassPool对象，你可以使用makeClass()方法，在一个查找路径包含大量jar文件的场景下，这种方式可以提高构造性能。因为如果ClassPool按要求读取一个class文件，它可能会重复搜素全量jar文件对于每个要构造的类文件。使用makeClass()方法可以优化这个搜索。通过makeClass()构造的CtClass会保存在ClassPool中，其所代表的类文件不会被重复调用。
+
 The users can extend the class search path. They can define a new class implementing ClassPath interface and give an instance of that class to insertClassPath() in ClassPool. This allows a non-standard resource to be included in the search path.
+
+用户可以扩展查找路径，他们可以通过实现ClassPath接口来实现一个新类，通过insertClassPath()方法，把一个实例存储到ClassPool中。这种方式允许把非标准资源包含到查找路径中。
