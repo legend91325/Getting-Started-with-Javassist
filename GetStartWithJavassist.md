@@ -396,3 +396,456 @@ CtClass cc2 = pool.getAndRename("Point", "Pair");
 If getAndRename() is called, the ClassPool first reads Point.class for creating a new CtClass object representing Point class. However, it renames that CtClass object from Point to Pair before it records that CtClass object in a hash table. Thus getAndRename() can be executed after writeFile() or toBytecode() is called on the the CtClass object representing Point class.
 
 如果getAndRename()方法被调用，ClassPool首先会读取Point.class创建一个代表Point类的新的CtClass对象。但是，在记录在hash表中将CtClass对象有Point重命名为Pair。因此getAndRename()方法可以在执行writeFile()或者toBytecode()后调用。
+
+###3. Class loader
+
+###3. 类加载器
+
+If what classes must be modified is known in advance, the easiest way for modifying the classes is as follows:
+
+如果提前知道哪些类是要修改的，最简单的操作是如下：
+
+1. Get a CtClass object by calling ClassPool.get(),
+2. Modify it, and
+3. Call writeFile() or toBytecode() on that CtClass object to obtain a modified class file.
+If whether a class is modified or not is determined at load time, the users must make Javassist collaborate with a class loader. Javassist can be used with a class loader so that bytecode can be modified at load time. The users of Javassist can define their own version of class loader but they can also use a class loader provided by Javassist.
+
+
+1. 通过调用ClassPool.get()来获取一个CtClass对象，
+2. 修改它然后
+3. 调用CtClass对象的writeFile()或者toBytecode()方法获取被修改的类文件。
+无论是否一个类在加载期间要被修改，用户都必须让Javassist关联上一个类加载器。这么做以便在加载期间可以修改字节码内容，用户可以提供自己定义的类加载器或者使用Javassist提供的。
+
+
+#### 3.1 The toClass method in CtClass
+
+#### 3.1 CtClass的toClass方法
+
+The CtClass provides a convenience method toClass(), which requests the context class loader for the current thread to load the class represented by the CtClass object. To call this method, the caller must have appropriate permission; otherwise, a SecurityException may be thrown.
+
+CtClass提供了一个便捷的方法toClass()，用来请求当前线程上下文的类加载器来加载CtClass对象所代表的类。为了调用这个方法，调用者必须有合适的权限，否则会有SecurityException异常抛出。
+
+The following program shows how to use toClass():
+
+下面程序展示如何使用toClass()：
+
+```java 
+public class Hello {
+    public void say() {
+        System.out.println("Hello");
+    }
+}
+
+public class Test {
+    public static void main(String[] args) throws Exception {
+        ClassPool cp = ClassPool.getDefault();
+        CtClass cc = cp.get("Hello");
+        CtMethod m = cc.getDeclaredMethod("say");
+        m.insertBefore("{ System.out.println(\"Hello.say():\"); }");
+        Class c = cc.toClass();
+        Hello h = (Hello)c.newInstance();
+        h.say();
+    }
+}
+```
+
+Test.main() inserts a call to println() in the method body of say() in Hello. Then it constructs an instance of the modified Hello class and calls say() on that instance.
+
+Test.main()中将一个println()方法插入到Hello的say()方法体中。然后构造了一个修改后的Hello类的实例，调用say()方法。
+
+Note that the program above depends on the fact that the Hello class is never loaded before toClass() is invoked. If not, the JVM would load the original Hello class before toClass() requests to load the modified Hello class. Hence loading the modified Hello class would be failed (LinkageError is thrown). For example, if main() in Test is something like this:
+
+注意这段程序是依赖条件是，在调用toClass()方法前，Hello类从来没有被加载过。如果不是这样的话，而是在toClass()请求加载修改的Hello类之前，JVM已经加载过原始的Hello类的话。请求JVM加载修改之后的Hello类将会不成功的（LinkageError 错误会被抛出）。例如，如果Test文件中main()如下面所示：
+
+```java 
+public static void main(String[] args) throws Exception {
+    Hello orig = new Hello();
+    ClassPool cp = ClassPool.getDefault();
+    CtClass cc = cp.get("Hello");
+        :
+}
+```
+
+then the original Hello class is loaded at the first line of main and the call to toClass() throws an exception since the class loader cannot load two different versions of the Hello class at the same time.
+
+原始的Hello类在main第一行被加载，然后调用toClass()方法会抛出异常，因为类加载器不能同时加载两个不同版本的Hello类。
+
+If the program is running on some application server such as JBoss and Tomcat, the context class loader used by toClass() might be inappropriate. In this case, you would see an unexpected ClassCastException. To avoid this exception, you must explicitly give an appropriate class loader to toClass(). For example, if bean is your session bean object, then the following code:
+
+如果程序运行在应用服务器上，例如JBoss，Tomcat，通过当前线程上下文调用toClass可能不合适，在这种场景下，你将会接收到一个不期望的ClassCastException异常。为了消除这种异常，你必须明确的指定类加载器来做toClass()操作。如果bean属于你的会话bean对象，按下面的代码：
+
+```java 
+CtClass cc = ...;
+Class c = cc.toClass(bean.getClass().getClassLoader());
+```
+
+would work. You should give toClass() the class loader that has loaded your program (in the above example, the class of the bean object).
+
+这种方式将会奏效，你应该给toClass()方法那个加载这个程序的类加载器（在上面这个例子，指定是加载bean对象的类）
+
+toClass() is provided for convenience. If you need more complex functionality, you should write your own class loader.
+
+toClass()方法提供了便捷，但是如果你需要复杂的功能，你应该写自己的类加载器。
+
+####3.2 Class loading in Java
+
+####3.2 java中的类加载
+
+In Java, multiple class loaders can coexist and each class loader creates its own name space. Different class loaders can load different class files with the same class name. The loaded two classes are regarded as different ones. This feature enables us to run multiple application programs on a single JVM even if these programs include different classes with the same name.
+
+在JAVA中，多个类加载器可以共存，每个类加载器可以其创建自己的命名空间。不同的类加载器可以加载同类名的不同类文件。被加载的两个类文件是被当做不同的类存在的。这个特点可以让我们在单一的JVM环境中运行不同的应用程序，即使这些应用程序包含同名的不同类。
+
+Note: The JVM does not allow dynamically reloading a class. Once a class loader loads a class, it cannot reload a modified version of that class during runtime. Thus, you cannot alter the definition of a class after the JVM loads it. However, the JPDA (Java Platform Debugger Architecture) provides limited ability for reloading a class. See Section 3.6.
+
+注意：JVM不允许动态重新加载类，一旦一个类被类加载器加载，在JVM运行期间不能再被另一个修改的版本。因此你无法再JVM加载之后去修改一个类的定义。但是JPDA(JAVA Platform Debugger Architecture)提供受限制的重新加载能力。看3.6部分了解详情。
+
+If the same class file is loaded by two distinct class loaders, the JVM makes two distinct classes with the same name and definition. The two classes are regarded as different ones. Since the two classes are not identical, an instance of one class is not assignable to a variable of the other class. The cast operation between the two classes fails and throws a ClassCastException.
+
+如果同一个类文件被两个独立的类加载器加载，JVM将会创建两个同名同样的定义但是不同的类。这两个类是被认为不同的。因为这两个类不是同一个，因此一个类的类实例是不能"assignable"另一个类的变量。这cast操作对于这两个类之间是会失败，抛出ClassCastException异常。
+
+For example, the following code snippet throws an exception:
+
+例如，下面代码片段会抛出异常：
+
+```java 
+MyClassLoader myLoader = new MyClassLoader();
+Class clazz = myLoader.loadClass("Box");
+Object obj = clazz.newInstance();
+Box b = (Box)obj;    // this always throws ClassCastException.
+```
+
+The Box class is loaded by two class loaders. Suppose that a class loader CL loads a class including this code snippet. Since this code snippet refers to MyClassLoader, Class, Object, and Box, CL also loads these classes (unless it delegates to another class loader). Hence the type of the variable b is the Box class loaded by CL. On the other hand, myLoader also loads the Box class. The object obj is an instance of the Box class loaded by myLoader. Therefore, the last statement always throws a ClassCastException since the class of obj is a different verison of the Box class from one used as the type of the variable b.
+
+Box类有两个类加载器加载。假设在这代码片段中包含一个由CL类加载器加载的类。因为这代码中引用了MyClassLoader类加载器，类，对象和Box类型，CL加载器同样也加载了这些操作（除非它有委托另一个加载器加载）。因此变量b是由CL加载器加载的Box类型。另一个边，myLoader加载器同样加载了Box类。obj对象是由myLoader加载器加载的Box类的实例。因此最后一段代码会抛出ClassCastException异常，因为obj对象的类和b变量所归属的类不是同一个版本。
+
+Multiple class loaders form a tree structure. Each class loader except the bootstrap loader has a parent class loader, which has normally loaded the class of that child class loader. Since the request to load a class can be delegated along this hierarchy of class loaders, a class may be loaded by a class loader that you do not request the class loading. Therefore, the class loader that has been requested to load a class C may be different from the loader that actually loads the class C. For distinction, we call the former loader the initiator of C and we call the latter loader the real loader of C.
+
+多个类加载器形成树形结构。除了启动类加载器其他都会有父类加载器， 。因为请求加载一个类会沿着这层级结构去委托加载，一个类的加载可能不是由你所请求加载的类加载器所加载。因此请求加载类C的类加载器可能和实际加载C类的类加载器是不相同的。为了区分，我们称前一个类加载器为C类的初始化者，后一个为C类的实际加载者。
+
+Furthermore, if a class loader CL requested to load a class C (the initiator of C) delegates to the parent class loader PL, then the class loader CL is never requested to load any classes referred to in the definition of the class C. CL is not the initiator of those classes. Instead, the parent class loader PL becomes their initiators and it is requested to load them. The classes that the definition of a class C referes to are loaded by the real loader of C.
+
+此外，如果一个CL类加载器请求加载类C(C的初始化类加载器)，将请求委托给父类PL类加载器，后续CL类加载器
+
+To understand this behavior, let's consider the following example.
+
+为了理解这个行为，让我们看下面的例子.
+
+```java 
+public class Point {    // loaded by PL
+    private int x, y;
+    public int getX() { return x; }
+        :
+}
+
+public class Box {      // the initiator is L but the real loader is PL
+    private Point upperLeft, size;
+    public int getBaseX() { return upperLeft.x; }
+        :
+}
+
+public class Window {    // loaded by a class loader L
+    private Box box;
+    public int getBaseX() { return box.getBaseX(); }
+}
+```
+
+Suppose that a class Window is loaded by a class loader L. Both the initiator and the real loader of Window are L. Since the definition of Window refers to Box, the JVM will request L to load Box. Here, suppose that L delegates this task to the parent class loader PL. The initiator of Box is L but the real loader is PL. In this case, the initiator of Point is not L but PL since it is the same as the real loader of Box. Thus L is never requested to load Point.
+
+假如类Window是由类加载器L所加载。初始化和真正加载Window都是L。因为Window的定义中引用了Box类，JVM请求L类加载器加载Box。假如这里，L类加载器将这个任务委托给PL类加载器。初始化Box的类加载器是L,实际加载Box的是PL类加载器。在这个例子中，Point类的初始化不是由L类加载器而是由PL类加载器，是和Box的实际加载器相同。因此L类加载器从没请求加载过Point类。
+
+Next, let's consider a slightly modified example.
+
+接下来让我们看下稍做修改的例子。
+
+```java 
+public class Point {
+    private int x, y;
+    public int getX() { return x; }
+        :
+}
+
+public class Box {      // the initiator is L but the real loader is PL
+    private Point upperLeft, size;
+    public Point getSize() { return size; }
+        :
+}
+
+public class Window {    // loaded by a class loader L
+    private Box box;
+    public boolean widthIs(int w) {
+        Point p = box.getSize();
+        return w == p.getX();
+    }
+}
+```
+
+Now, the definition of Window also refers to Point. In this case, the class loader L must also delegate to PL if it is requested to load Point. You must avoid having two class loaders doubly load the same class. One of the two loaders must delegate to the other.
+
+现在Window类的定义同样引用了Point类，在这个案例中，当L类加载器被请求加载Point时，它必须同样委托给PL类加载器。你必须消除同一个类被两个类加载器加载。两个类加载器中其一必须委托给其他类加载器去加载。
+
+If L does not delegate to PL when Point is loaded, widthIs() would throw a ClassCastException. Since the real loader of Box is PL, Point referred to in Box is also loaded by PL. Therefore, the resulting value of getSize() is an instance of Point loaded by PL whereas the type of the variable p in widthIs() is Point loaded by L. The JVM regards them as distinct types and thus it throws an exception because of type mismatch.
+
+如果Point类要求加载的请求没有被L类加载器委托给PL类加载器的话，widthIs()方法会抛出ClassCastException异常。因为实际加载Box类的类加载器是PL,Point类在Box中有引用，所以同样也被PL类加载器加载。因此getSize()方法返回的结果值是由PL加载的Point实例，同样widthIs()方法的Point类的变量p是由L类加载器加载的。JVM认为这是两个不同类型的类，所以会抛出一个类型一致的异常。
+
+This behavior is somewhat inconvenient but necessary. If the following statement:
+
+这种行为某种程度上不是便利的，但是必要的限制。如果下面的代码：
+
+```java 
+Point p = box.getSize();
+```
+
+did not throw an exception, then the programmer of Window could break the encapsulation of Point objects. For example, the field x is private in Point loaded by PL. However, the Window class could directly access the value of x if L loads Point with the following definition:
+
+不再抛出一个异常，Window类的开发者将会到Point对象的封装性。比如，由PL类加载器的Point中属性x是私有的。但是如果L类加载器按下面来加载Point类的话，Window类可以直接访问x属性的值。
+
+```java 
+public class Point {
+    public int x, y;    // not private
+    public int getX() { return x; }
+        :
+}
+```
+
+For more details of class loaders in Java, the following paper would be helpful:
+
+为了了解更多关于Java的类加载器的细节，下面的论文是很有帮助的：
+
+Sheng Liang and Gilad Bracha, "Dynamic Class Loading in the Java Virtual Machine", 
+ACM OOPSLA'98, pp.36-44, 1998.
+
+#### 3.3 Using javassist.Loader
+
+#### 3.3 使用 javassist.Loader
+
+Javassist provides a class loader javassist.Loader. This class loader uses a javassist.ClassPool object for reading a class file.
+
+Javassist提供了一个javassist.Loader类加载器。这个类加载器使用javassist.ClassPool对象来加载类文件。
+
+For example, javassist.Loader can be used for loading a particular class modified with Javassist.
+
+例如，javassist.Loader可以用来加载由Javassist修改过的类。
+
+```java 
+import javassist.*;
+import test.Rectangle;
+
+public class Main {
+  public static void main(String[] args) throws Throwable {
+     ClassPool pool = ClassPool.getDefault();
+     Loader cl = new Loader(pool);
+
+     CtClass ct = pool.get("test.Rectangle");
+     ct.setSuperclass(pool.get("test.Point"));
+
+     Class c = cl.loadClass("test.Rectangle");
+     Object rect = c.newInstance();
+         :
+  }
+}
+```
+
+This program modifies a class test.Rectangle. The superclass of test.Rectangle is set to a test.Point class. Then this program loads the modified class, and creates a new instance of the test.Rectangle class.
+
+这段程序修改了test.Rectangle类。test.Rectangle的父类设置为test.Point。然后程序加载修改后的类，创建了一个test.Rectangle类型的新实例。
+
+If the users want to modify a class on demand when it is loaded, the users can add an event listener to a javassist.Loader. The added event listener is notified when the class loader loads a class. The event-listener class must implement the following interface:
+
+如果用户想在类被加载的时候按照要求来修改，可以通过网javassist.Loader添加一个时间监听来实现这个功能。当一个类被类加载器加载时，添加的事件监听会被通知到。事件监听类必须实现下面的接口：
+
+```java 
+public interface Translator {
+    public void start(ClassPool pool)
+        throws NotFoundException, CannotCompileException;
+    public void onLoad(ClassPool pool, String classname)
+        throws NotFoundException, CannotCompileException;
+}
+```
+
+The method start() is called when this event listener is added to a javassist.Loader object by addTranslator() in javassist.Loader. The method onLoad() is called before javassist.Loader loads a class. onLoad() can modify the definition of the loaded class.
+
+通过javassist.Loader的addTranslator()方法来添加一个事件监听，Translator的start()方法会被回调。在javassist.Loader加载一个类之前，onLoad()方法会被调用。onLoad()方法中可以修改被加载类的定义。
+
+For example, the following event listener changes all classes to public classes just before they are loaded.
+
+例如，接下来的事件监听，将类被加载之前改成公有访问。
+
+```java 
+public class MyTranslator implements Translator {
+    void start(ClassPool pool)
+        throws NotFoundException, CannotCompileException {}
+    void onLoad(ClassPool pool, String classname)
+        throws NotFoundException, CannotCompileException
+    {
+        CtClass cc = pool.get(classname);
+        cc.setModifiers(Modifier.PUBLIC);
+    }
+}
+```
+
+Note that onLoad() does not have to call toBytecode() or writeFile() since javassist.Loader calls these methods to obtain a class file.
+
+注意onLoad()方法不必调用toBytecode()或者writeFile()方法，因为javasssist.Loader调用了这些方法来获取类文件。
+
+To run an application class MyApp with a MyTranslator object, write a main class as following:
+
+为了通过MyTranslator对象，运行MyApp类的程序，可以写一个如下的Main类：
+
+```java 
+import javassist.*;
+
+public class Main2 {
+  public static void main(String[] args) throws Throwable {
+     Translator t = new MyTranslator();
+     ClassPool pool = ClassPool.getDefault();
+     Loader cl = new Loader();
+     cl.addTranslator(pool, t);
+     cl.run("MyApp", args);
+  }
+}
+```
+To run this program, do:
+
+通过下面命令，运行这个程序：
+
+```shell 
+% java Main2 arg1 arg2...
+```
+
+The class MyApp and the other application classes are translated by MyTranslator.
+
+MyApp类和其他应用程序类是被MyTranslator转化过的。
+
+Note that application classes like MyApp cannot access the loader classes such as Main2, MyTranslator, and ClassPool because they are loaded by different loaders. The application classes are loaded by javassist.Loader whereas the loader classes such as Main2 are by the default Java class loader.
+
+需要注意应用程序类如MyApp不能访问那些加载类，诸如Main2,MyTranslator,ClassPool类，因为它们是由不同加载器所加载。应用程序类是由javassist.Loader所加载，那些加载类如Main2 是由Java默认的加载器所加载。
+
+javassist.Loader searches for classes in a different order from java.lang.ClassLoader. ClassLoader first delegates the loading operations to the parent class loader and then attempts to load the classes only if the parent class loader cannot find them. On the other hand, javassist.Loader attempts to load the classes before delegating to the parent class loader. It delegates only if:
+
+javassist.Loader查找类的顺序与java.lang.ClassLoader不同。ClassLoader首先将加载操作委托给父类加载器，然后如果父类查找不到，才会尝试自己加载。另一边，javassist.Loader在委托之前会先尝试自己来加载这个类。仅仅下面情况才会委托父类：
+
+the classes are not found by calling get() on a ClassPool object, or
+the classes have been specified by using delegateLoadingOf() to be loaded by the parent class loader.
+This search order allows loading modified classes by Javassist. However, it delegates to the parent class loader if it fails to find modified classes for some reason. Once a class is loaded by the parent class loader, the other classes referred to in that class will be also loaded by the parent class loader and thus they are never modified. Recall that all the classes referred to in a class C are loaded by the real loader of C. If your program fails to load a modified class, you should make sure whether all the classes using that class have been loaded by javassist.Loader.
+
+通过ClassPool对象调用get()方法没有发现的类，或者通过使用delegateLoadingOf()方法描述的类将由父类加载器加载。查找顺序可以允许javassist来加载修改过的类，但是如果它因为某种原因查找修改的类失败，那么它会委托给父类加载器架子啊。一旦类由父类加载器加载，这个类中引用的其他类也将会由父类加载器来加载，因此他们的类文件是从没被修改过的。C类中所有类的引用，将由C类的真实加载器来加载。如果你的程序没有成功加载一个修改过的类，你应该去确信是否所有引用过这个类的类文件已经被javassist.Loader所加载。
+
+####3.4 Writing a class loader
+
+####3.4 写一个类加载器
+
+A simple class loader using Javassist is as follows:
+
+使用Javassist写一个简单的类加载器如下：
+
+```java 
+import javassist.*;
+
+public class SampleLoader extends ClassLoader {
+    /* Call MyApp.main().
+     */
+    public static void main(String[] args) throws Throwable {
+        SampleLoader s = new SampleLoader();
+        Class c = s.loadClass("MyApp");
+        c.getDeclaredMethod("main", new Class[] { String[].class })
+         .invoke(null, new Object[] { args });
+    }
+
+    private ClassPool pool;
+
+    public SampleLoader() throws NotFoundException {
+        pool = new ClassPool();
+        pool.insertClassPath("./class"); // MyApp.class must be there.
+    }
+
+    /* Finds a specified class.
+     * The bytecode for that class can be modified.
+     */
+    protected Class findClass(String name) throws ClassNotFoundException {
+        try {
+            CtClass cc = pool.get(name);
+            // modify the CtClass object here
+            byte[] b = cc.toBytecode();
+            return defineClass(name, b, 0, b.length);
+        } catch (NotFoundException e) {
+            throw new ClassNotFoundException();
+        } catch (IOException e) {
+            throw new ClassNotFoundException();
+        } catch (CannotCompileException e) {
+            throw new ClassNotFoundException();
+        }
+    }
+}
+```
+
+The class MyApp is an application program. To execute this program, first put the class file under the ./class directory, which must not be included in the class search path. Otherwise, MyApp.class would be loaded by the default system class loader, which is the parent loader of SampleLoader. The directory name ./class is specified by insertClassPath() in the constructor. You can choose a different name instead of ./class if you want. Then do as follows:
+
+MyApp类是一个应用程序，为了执行这个程序，首先将类文件放在./class路径下，同时类查找路径不包含这个路径。另外，MyApp.class将会由系统默认的类加载器所加载，是SampleLoader加载器的父类加载器。路径名./class通调用用insertClassPath()方法，在构造函数中设置。你可以提供一个不同的路径名来代替./class路径，然后做如下操作：
+
+```shell 
+% java SampleLoader
+```
+
+The class loader loads the class MyApp (./class/MyApp.class) and calls MyApp.main() with the command line parameters.
+
+类加载器加载MyApp类（./class/MyApp.class），使用命令行调用MyApp.main()方法。
+
+This is the simplest way of using Javassist. However, if you write a more complex class loader, you may need detailed knowledge of Java's class loading mechanism. For example, the program above puts the MyApp class in a name space separated from the name space that the class SampleLoader belongs to because the two classes are loaded by different class loaders. Hence, the MyApp class cannot directly access the class SampleLoader.
+
+这是最简单的使用Javassist方式。但是，如果你写个更复杂的类加载器，你可能需要更多关于Java类加载机制的细节知识。例如，程序将MyApp类的命名空间和类SampleLoader类的命名空间区分出来，因为这两个类是由不同类加载器所加载。因此MyApp类不能直接访问到SampleLoader类。
+
+####3.5 Modifying a system class
+
+####3.5 修改一个系统类
+
+The system classes like java.lang.String cannot be loaded by a class loader other than the system class loader. Therefore, SampleLoader or javassist.Loader shown above cannot modify the system classes at loading time.
+
+系统类如java.lang.String不能有除了系统加载器之外的其他加载器所加载。因此，SampleLoadr或者javassist.Loader不能在加载期间加载一个系统类。
+
+If your application needs to do that, the system classes must be statically modified. For example, the following program adds a new field hiddenValue to java.lang.String:
+
+如果你的应用须有这么做，系统类文件必须是静态被修改，例如下面的程序将会往java.lang.String中添加一个新的hiddenValue属性。
+
+```java 
+ClassPool pool = ClassPool.getDefault();
+CtClass cc = pool.get("java.lang.String");
+CtField f = new CtField(CtClass.intType, "hiddenValue", cc);
+f.setModifiers(Modifier.PUBLIC);
+cc.addField(f);
+cc.writeFile(".");
+This program produces a file "./java/lang/String.class".
+```
+
+To run your program MyApp with this modified String class, do as follows:
+
+为了运行这个执行修改String类的程序，执行下面命令：
+
+```java 
+% java -Xbootclasspath/p:. MyApp arg1 arg2...
+Suppose that the definition of MyApp is as follows:
+
+public class MyApp {
+    public static void main(String[] args) throws Exception {
+        System.out.println(String.class.getField("hiddenValue").getName());
+    }
+}
+```
+If the modified String class is correctly loaded, MyApp prints hiddenValue.、
+
+如果修改过的String类被正确加载，MyApp将会戴颖hiddenValue。
+
+Note: Applications that use this technique for the purpose of overriding a system class in rt.jar should not be deployed as doing so would contravene the Java 2 Runtime Environment binary code license.
+
+注意：应用程序通过使用技术来达到覆盖rt.jar中的系统类，但是不应该被部署，因为这违背了Java 2 Runtime Environment字节码许可。
+
+####3.6 Reloading a class at runtime
+
+####3.6 在运行期间重载类
+
+If the JVM is launched with the JPDA (Java Platform Debugger Architecture) enabled, a class is dynamically reloadable. After the JVM loads a class, the old version of the class definition can be unloaded and a new one can be reloaded again. That is, the definition of that class can be dynamically modified during runtime. However, the new class definition must be somewhat compatible to the old one. The JVM does not allow schema changes between the two versions. They have the same set of methods and fields.
+
+如果JVM在启动时JPDA(Java 平台debugger 体系)属性开启，类是可以动态重复加载。JVM加载一个类后，类的老版本定义被卸载，新的类被再一次重载。换言之，类的定义可以在运行期间动态的被修改。但是新类的定义某种程度上要兼容旧的类定义。JVM不允许两个版本之间schema发生改变。两个版本要有相同的方法和属性。
+
+Javassist provides a convenient class for reloading a class at runtime. For more information, see the API documentation of javassist.tools.HotSwapper.
+
+Javassist提供了一个便捷的类，用来在运行期间重载一个列，了解javassist.tools.HotSwapper的API文档。
